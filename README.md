@@ -1,36 +1,127 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OAUTH2
 
-## Getting Started
+## Redirect TO provider
 
-First, run the development server:
+-----> redirect to authUrl with client_id,scope,redirecturl,response-type\
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+ private redirectUrl() {
+    return new URL(this.provider, process.env.OAUTH_URL_BASE);
+  }
+  createAuthUrl() {
+    const url = urls[this.provider].auth;
+    url.searchParams.set("client_id", urls[this.provider].clientId || "");
+    url.searchParams.set("redirect_uri", this.redirectUrl().toString());
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", urls[this.provider].scope.join(" "));
+    url.searchParams.set("state", this.createState(cookies));
+    url.searchParams.set("code_challenge", crypto.hash("sha256", this.code_verifier(cookies), "base64url"));
+    url.searchParams.set("code_challenge_method", "S256");
+    return url.toString();
+  }
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+```
+const urls: { [key in OAuthProvidersType]: UrlsType } = {
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    auth: new URL("https://accounts.google.com/o/oauth2/v2/auth"),
+    token: "https://oauth2.googleapis.com/token",
+    user: "https://www.googleapis.com/oauth2/v2/userinfo",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    scope: ["openid", "email", "profile"],
+  },
+  discord: {
+    clientId: process.env.DISCORD_CLIENT_ID,
+    auth: new URL("https://discord.com/oauth2/authorize"),
+    token: "https://discord.com/api/oauth2/token",
+    user: "https://discord.com/api/users/@me",
+    clientSecret: process.env.DISCORD_CLIENT_SECRET || "",
+    scope: ["openid", "email", "identify"],
+  },
+};
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Get token
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+-------> Get code from urlParams of redirectUrl
 
-## Learn More
+```
+ return fetch(urls[this.provider].token, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "aplication/json",
+      },
+      body: new URLSearchParams({
+        code,
+        redirect_uri: this.redirectUrl().toString(),
+        client_id: urls[this.provider].clientId || "",
+        client_secret: urls[this.provider].clientSecret || "",
+        grant_type: "authorization_code",
+        code_verifier: codeVerifier || "",
+      }),
+    })
+```
 
-To learn more about Next.js, take a look at the following resources:
+## getUser
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+ const { token_type, access_token } = await this.fetchToken(code);
+    return fetch(urls[this.provider].user, {
+      headers: {
+        Authorization: `${token_type} ${access_token}`,
+      },
+    })
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Advance Security OAuth
 
-## Deploy on Vercel
+### State
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Send a crypted string which get returns in callbackUrl to check if callBack is comming from trusted provider
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+    url.searchParams.set("state", this.createState(cookies));
+```
+
+```
+  private createState(cookies: ReadonlyRequestCookies) {
+    const state = crypto.randomBytes(64).toString("hex").normalize();
+    cookies.set(COOKIE_STATE_KEY, state, {
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+      expires: Date.now() + COOKIE_STATE_EXPIRE_IN_SEC * 1000,
+    });
+    return state;
+  }
+```
+
+### Code_Challenge
+
+Send a crypted hashed in sha256 string which get returns in callbackUrl to check if callBack is comming from trusted provider
+
+```
+ url.searchParams.set("code_challenge", crypto.hash("sha256", this.code_verifier(cookies), "base64url"));
+ url.searchParams.set("code_challenge_method", "S256");
+```
+
+```
+  private code_verifier(cookies: ReadonlyRequestCookies) {
+    const state = crypto.randomBytes(64).toString("hex").normalize();
+    cookies.set(COOKIE_VERIFIER_KEY, state, {
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+      expires: Date.now() + COOKIE_VERIFIER_EXPIRE_IN_SEC * 1000,
+    });
+    return state;
+  }
+```
+
+send It with body to auth with provider
+
+```
+       code_verifier: codeVerifier || "",
+```
