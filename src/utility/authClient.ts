@@ -99,7 +99,6 @@ export class OAuthClient {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", urls[this.provider].scope.join(" "));
     url.searchParams.set("state", this.createState(cookies));
-    url.searchParams.set("state", this.createState(cookies));
     url.searchParams.set("code_challenge", crypto.hash("sha256", this.code_verifier(cookies), "base64url"));
     url.searchParams.set("code_challenge_method", "S256");
     return url.toString();
